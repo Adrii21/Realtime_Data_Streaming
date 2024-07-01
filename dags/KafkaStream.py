@@ -1,30 +1,32 @@
+import json
+import logging
+import uuid
 from datetime import datetime
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from kafka import KafkaProducer
 
 default_args = {
     'owner': 'airscholar',
-    'start_date': datetime(2024, 6, 19, 18, 00)
+    'start_date': datetime(2024, 2, 3, 12, 00)
 }
+
 
 def get_data():
     import requests
-    
-    res = requests.get('https://randomuser.me/api/')
-    res = res.json()
-    # la api devuelve 'results' y 'info', nos quedamos con results
-    res = res['results'][0]
 
+    res = requests.get("https://randomuser.me/api/")
+    res = res.json()
+    res = res['results'][0]
     return res
 
 
 def format_data(res):
     data = {}
-    
+    location = res['location']
     data['first_name'] = res['name']['first']
     data['last_name'] = res['name']['last']
     data['gender'] = res['gender']
-    location = res['location']
     data['address'] = f"{str(location['street']['number'])} {location['street']['name']}, " \
                       f"{location['city']}, {location['state']}, {location['country']}"
     data['post_code'] = location['postcode']
@@ -36,16 +38,14 @@ def format_data(res):
     data['picture'] = res['picture']['medium']
 
     return data
-     
+
 
 def stream_data():
     import json
-    from kafka import KafkaProducer
     import time
-    import logging
-    
+    from kafka import KafkaProducer
 
-    producer = KafkaProducer(bootstrap_servers=['broker:29092'], max_block_ms = 5000)  #timeout
+    producer = KafkaProducer(bootstrap_servers=['broker:29092'], max_block_ms=5000)
     curr_time = time.time()
 
     while True:
@@ -54,23 +54,20 @@ def stream_data():
         try:
             res = get_data()
             res = format_data(res)
-            
-            producer.send('users_created', json.dumps(res).encode('UTF-8'))
+            producer.send('users_created', json.dumps(res).encode('utf-8'))
+
         except Exception as e:
-            logging.error(f'An error occured: {e}')
+            logging.error(f'Ha ocurrido un error: {e}')
             continue
 
 
-#coleccion de todas las tareas a ejecutar
-with DAG('user_automation',             
+
+
+with DAG('user_automation',
          default_args=default_args,
          schedule='@daily',
          catchup=False) as dag:
-   
     streaming_task = PythonOperator(
-        task_id='stream_data_from_api',
-        python_callable=stream_data
+        python_callable=stream_data,
+        task_id='stream_data_from_api'
     )
-
-#stream_data();
-
